@@ -15,6 +15,14 @@ mkdir -p ${REPORT_FOLDER}
 
 GROUP_JSON=""
 
+function log {
+    if [ $NO_LOG ]; then
+        return
+    fi
+    echo "$@"
+}
+
+
 function translate_access_level {
     local level=$1
     case $level in
@@ -194,17 +202,60 @@ function report_per_user {
             local member_json=${GROUP_MEMBER_JSON[$group_id]}
             local member=$(echo "$member_json" | jq --argjson id $member_id '.[] | select(.id == $id)' )
 
-            if [ "$member" == "" ]; then
-                continue
-            fi
-
             local group_json=${GROUP_JSON[$group_id]}
             local path=$(echo ${group_json} | jq -r '.full_path' )
 
-            local accesslevel=$(echo $member | jq -r '.access_level')
-            local role=$(report_access_level $accesslevel)
+            if [ "$member" != "" ]; then
 
-            echo "| ${path}/*  | $role"
+                local accesslevel=$(echo $member | jq -r '.access_level')
+                local role=$(report_access_level $accesslevel)
+
+                echo "| ${path}/*  | $role"
+            fi
+
+            local project_type
+            for project_type in shared_projects projects; do
+                local project_json=$(echo "${group_json}" | jq --arg type ${project_type} -r '.[$type]')
+                local project_id
+
+                if [ "$(echo $project_json | jq -c '.[]')" == "" ]; then
+                    continue
+                fi
+                
+                for project_id in $(sort_project_ids_by_path "${project_json}" ); do
+                    local data=$(echo "${project_json}" | jq --argjson id $project_id '.[] | select( .id == $id )')
+                    local name=$(echo $data | jq -r '.path_with_namespace')
+
+                    if [ "$project_type" == "shared_projects" ]; then
+                        local accesslevel2=$(echo $data | jq --argjson id $group_id -r '.shared_with_groups[] | select (.group_id == $id) | .group_access_level')
+
+                        if [ ${accesslevel2} -gt ${accesslevel} ]; then
+                            accesslevel2=${accesslevel}
+                        fi
+                        local role=$(report_access_level $accesslevel2)
+                        echo "| +-> _${name}_ | ${role}"
+                    fi
+
+                    if [ "$project_type" == "projects" ]; then
+
+                        local pmember_json=${PROJECT_MEMBER_JSON[$project_id]}
+                        local pmember=$(echo "$pmember_json" | jq --argjson id $member_id '.[] | select(.id == $id)' )
+
+                        local project_json2=$(echo $project_json | jq --argjson id $project_id '.[] | select(.id == $id)' )
+                        local path=$(echo ${project_json2} | jq -r '.path_with_namespace' )
+
+                        if [ "$pmember" != "" ]; then
+                            local accesslevel2=$(echo $pmember | jq -r '.access_level')
+                            local role=$(report_access_level $accesslevel2)
+                            echo "| ${path}  | $role"
+                        fi
+                    fi
+
+
+                done
+
+            done
+
         done
 
   done
@@ -220,11 +271,15 @@ function sort_project_ids_by_path {
     echo $json | jq -c '.[] | { name: .path, id: .id }' | jq -s  '. | sort_by (.name) | .[].id'
 }
 
+log "--- start"
 
+log "loading data"
 # does not seem to work when placed in a function
+log "  groups"
 data=$(import "groups")
 eval "declare -a GROUP_JSON="${data#*=}
 
+log "  group_members"
 data=$(import "group_members")
 eval "declare -a GROUP_MEMBER_JSON="${data#*=}
 
@@ -232,19 +287,27 @@ eval "declare -a GROUP_MEMBER_JSON="${data#*=}
 #data=$(import "all_group_members")
 #eval "declare -a ALL_GROUP_MEMBER_JSON="${data#*=}
 
+log "  computing group_members_all"
 declare -a COMPUTED_ALL_GROUP_MEMBER_JSON
 for id in $ROOT_IDS; do
     COMPUTED_ALL_GROUP_MEMBER_JSON[$id]="[]"
 done
 
+log "  project_members"
 data=$(import "project_members")
 eval "declare -a PROJECT_MEMBER_JSON="${data#*=}
 
-
+log "preprocessing data"
+log "  ordered group ids"
 ORDERED_GROUP_IDS="$(order_groups_by_structure "${!GROUP_JSON[@]}")"
+log "  sorted user ids"
 SORTED_USER_IDS=$(echo "${GROUP_MEMBER_JSON[@]}" | jq -c '.[] | { id: .id, name: .name }' | jq -sc '. | unique |sort_by(.name) | .[].id')
 
-
+log "reporting"
+log "  access per path"
 report_per_path > $REPORT_FOLDER/access_per_group.md
+log "  access per path (full)"
 report_per_path "full" > $REPORT_FOLDER/access_per_group-full.md
+log "  access per user"
 report_per_user > $REPORT_FOLDER/access_per_user.md
+log "--- done"

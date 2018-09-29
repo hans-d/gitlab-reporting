@@ -3,7 +3,14 @@ IMG_NAME=gitlab-reporting
 GITLAB_CLI=docker run -it --rm \
 	-e GITLAB_PRIVATE_TOKEN=${GITLAB_API_PRIVATE_TOKEN} \
 	-v $$(pwd):/src \
-	 ${IMG_NAME}
+	${EXTRA_ARGS} \
+	${IMG_NAME}
+
+ifeq ($(ENV),dev)
+	EXTRA_ARGS = \
+		-v $$(pwd)/src/collect.sh:/usr/local/bin/collect.sh \
+		-v $$(pwd)/src/report-access.sh:/usr/local/bin/report-access.sh
+endif
 
 default:
 
