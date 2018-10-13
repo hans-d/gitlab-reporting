@@ -27,7 +27,7 @@ function gitlab_group {
 
 function gitlab_group_members {
     local GROUP_ID=$1
-    gitlab -o json group-member list --group-id  ${GROUP_ID}  | jq --arg id $GROUP_ID '. | map( . + {group_id: $id} )'
+    gitlab -o json group-member list --group-id  ${GROUP_ID}  --all | jq --arg id $GROUP_ID '. | map( . + {group_id: $id} )'
 }
 
 function gitlab_all_group_members {
@@ -38,7 +38,7 @@ function gitlab_all_group_members {
     local GROUP_ID=$1
     # not yet available via the current cli: https://github.com/python-gitlab/python-gitlab/pull/599
 
-    gitlab group-member-all list --group-id $id
+    gitlab group-member-all list --group-id $id --all
 
     #local data=$(gitlab -o json group-member-all --group-id ${GROUP_ID} | jq --arg id $GROUP_ID '. | map( . + {group_id: $id} )')
 
@@ -69,7 +69,7 @@ function gitlab_project_members {
 
 function gitlab_subgroups {
     local GROUP_ID=$1
-    gitlab -o json group-subgroup list --group-id ${GROUP_ID}
+    gitlab -o json group-subgroup list --group-id ${GROUP_ID} --all
 }
 
 function gitlab_all_subgroups {
